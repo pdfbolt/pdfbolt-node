@@ -1,0 +1,59 @@
+{
+  "name": "@pdfbolt/node",
+  "version": "1.0.0",
+  "description": "Official Node.js SDK for the PDFBolt API.",
+  "type": "module",
+  "main": "./dist/cjs/index.js",
+  "module": "./dist/esm/index.js",
+  "types": "./dist/esm/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/esm/index.d.ts",
+      "import": "./dist/esm/index.js",
+      "require": "./dist/cjs/index.js"
+    }
+  },
+  "files": [
+    "dist",
+    "README.md",
+    "LICENSE"
+  ],
+  "publishConfig": {
+    "access": "public"
+  },
+  "sideEffects": false,
+  "engines": {
+    "node": ">=22"
+  },
+  "scripts": {
+    "clean": "rm -rf dist",
+    "check:node": "node -e \"const major = Number(process.versions.node.split('.')[0]); if (major < 22) { console.error('Node.js 22 or newer is required.'); process.exit(1); }\"",
+    "build": "npm run clean && npm run build:esm && npm run build:cjs && node scripts/write-cjs-package.js",
+    "build:esm": "tsc -p tsconfig.build.esm.json",
+    "build:cjs": "tsc -p tsconfig.build.cjs.json",
+    "typecheck": "tsc --noEmit",
+    "test": "npm run build && node --test test/*.test.js test/*.test.cjs",
+    "test:pack": "npm run build && node scripts/test-pack.js",
+    "test:integration": "npm run build && node --test test/integration.test.js && node --test test/integration-sync-template.test.js",
+    "test:integration:core": "npm run build && node --test test/integration.test.js",
+    "test:integration:sync-template": "npm run build && node --test test/integration-sync-template.test.js",
+    "prepublishOnly": "npm run check:node && npm run typecheck && npm run test && npm run test:pack"
+  },
+  "keywords": [
+    "pdfbolt",
+    "pdf",
+    "html-to-pdf",
+    "url-to-pdf",
+    "pdf-generation",
+    "webhook",
+    "serverless",
+    "node",
+    "typescript"
+  ],
+  "author": "PDFBolt",
+  "license": "MIT",
+  "devDependencies": {
+    "@types/node": "^22.0.0",
+    "typescript": "^5.0.0"
+  }
+}
