@@ -10,7 +10,7 @@ PDFBolt generates PDFs from HTTPS URLs, HTML, and published templates. See the [
 npm install @pdfbolt/node
 ```
 
-Requires Node.js 22 or newer.
+Requires Node.js 24 or newer.
 
 ## Quick Start
 
@@ -128,7 +128,7 @@ console.log(pdf.contentType);
 console.log(pdf.contentDisposition);
 console.log(pdf.filename);
 console.log(pdf.conversionCost);
-console.log(pdf.rateLimit.minuteRemaining);
+console.log(pdf.rateLimit.minute.remaining);
 console.log(pdf.headers.get('x-pdfbolt-conversion-cost'));
 ```
 
@@ -149,7 +149,8 @@ console.log(result.documentUrl);
 console.log(result.expiresAt);
 console.log(result.duration);
 console.log(result.documentSizeMb);
-console.log(result.rateLimit.minuteRemaining);
+console.log(result.rateLimit.minute.remaining);
+console.log(result.conversionCost);
 ```
 
 For custom S3 uploads, pass a valid presigned URL. PDFBolt uploads the generated PDF to your S3-compatible bucket, so `documentUrl` and `expiresAt` are `null`.
@@ -178,7 +179,7 @@ const job = await pdfbolt.asyncConversions.fromUrl({
 });
 
 console.log(job.requestId);
-console.log(job.rateLimit.minuteRemaining);
+console.log(job.rateLimit.minute.remaining);
 ```
 
 [`retryDelays`](https://pdfbolt.com/docs/api-endpoints/async#retrydelays) are in minutes and retry the conversion attempt itself, not webhook delivery.
@@ -212,15 +213,12 @@ console.log(event.documentUrl);
 
 ## Error Handling
 
-Specific API errors extend `PDFBoltAPIError`, so you can handle a specific error class or fall back to the common API error shape.
+The PDFBolt API returns one common error response shape. The SDK mirrors that with one backend error class: `PDFBoltAPIError`. Check `statusCode` for HTTP-level handling and `errorCode` for PDFBolt-specific causes.
 
 ```ts
 import {
   PDFBoltAPIError,
-  PDFBoltAuthenticationError,
-  PDFBoltBadRequestError,
   PDFBoltNetworkError,
-  PDFBoltRateLimitError,
   PDFBoltValidationError
 } from '@pdfbolt/node';
 
@@ -229,19 +227,22 @@ try {
 } catch (error) {
   if (error instanceof PDFBoltValidationError) {
     console.log(error.message);
-  } else if (error instanceof PDFBoltAuthenticationError) {
-    console.log('Check your API key.');
-  } else if (error instanceof PDFBoltBadRequestError) {
-    console.log(error.errorMessage);
-  } else if (error instanceof PDFBoltRateLimitError) {
-    console.log(error.minuteLimit);
-    console.log(error.minuteRemaining);
   } else if (error instanceof PDFBoltAPIError) {
     console.log(error.statusCode);
     console.log(error.timestamp);
     console.log(error.errorCode);
     console.log(error.errorMessage);
+    console.log(error.rateLimit.minute.limit);
+    console.log(error.rateLimit.minute.remaining);
     console.log(error.rawBody);
+
+    if (error.statusCode === 401) {
+      console.log('Check your API key.');
+    }
+
+    if (error.errorCode === 'TOO_MANY_REQUESTS') {
+      console.log(error.rateLimit.minute.remaining);
+    }
   } else if (error instanceof PDFBoltNetworkError) {
     console.log(error.message);
   } else {
@@ -250,30 +251,20 @@ try {
 }
 ```
 
-`PDFBoltError` is the base class for all SDK errors. `PDFBoltAPIError` is the base class for errors returned by the PDFBolt API in an HTTP response.
+`PDFBoltError` is the base class for all SDK errors. `PDFBoltAPIError` is thrown when the PDFBolt API returns an HTTP error response.
 
 Exported error classes:
 
 ```ts
 PDFBoltError
 PDFBoltAPIError
-PDFBoltBadRequestError
-PDFBoltAuthenticationError
-PDFBoltForbiddenError
-PDFBoltConversionTimeoutError
-PDFBoltNotFoundError
-PDFBoltPayloadTooLargeError
-PDFBoltUnprocessableEntityError
-PDFBoltRateLimitError
-PDFBoltServiceUnavailableError
-PDFBoltGatewayTimeoutError
 PDFBoltNetworkError
 PDFBoltWebhookSignatureError
 PDFBoltValidationError
 PDFBoltConfigurationError
 ```
 
-Most API error classes map directly to documented HTTP status codes. See [Error Handling](https://pdfbolt.com/docs/error-handling) for the full API error reference. These SDK-specific classes are worth calling out:
+See [Error Handling](https://pdfbolt.com/docs/error-handling) for the full API error reference. These SDK-specific classes are worth calling out:
 
 - `PDFBoltValidationError` is thrown before a request is sent when a high-level helper is called with missing or invalid SDK-side parameters.
 - `PDFBoltConfigurationError` is thrown before a request is sent, for example when the API key is missing.
@@ -285,14 +276,15 @@ Most API error classes map directly to documented HTTP status codes. See [Error 
 ```ts
 const pdfbolt = new PDFBolt({
   apiKey: process.env.PDFBOLT_API_KEY!,
-  requestTimeoutMs: 120_000,
-  maxRetries: 0
+  requestTimeoutMs: 120_000
 });
 ```
 
-Retries are disabled by default. If enabled, the SDK retries transport failures, SDK HTTP timeouts, and `503` / `504` responses. Retried requests can start another conversion. The default `retryDelayMs` is `250` ms, and retry delays use exponential backoff.
+The SDK does not perform automatic transport retries. One SDK method call sends at most one HTTP request. For async conversion retries handled by the PDFBolt backend, use the `retryDelays` conversion parameter.
 
 `requestTimeoutMs` is the SDK HTTP timeout. The default is `120_000` ms. The conversion `timeout` option is different: it is sent to the PDFBolt API and controls the browser render timeout for the PDF conversion.
+
+The SDK always sends `User-Agent: pdfbolt-node/<version>` to the PDFBolt API. This identifies the SDK version in backend logs. To control headers used by Chromium/Playwright while rendering the target page, use the conversion `extraHTTPHeaders` parameter.
 
 Common conversion options such as `format`, `margin`, `printBackground`, `contentDisposition`, `filename`, and `compression` use the same names as the REST API. See [Conversion Parameters](https://pdfbolt.com/docs/parameters) for the full parameter reference.
 
@@ -318,7 +310,7 @@ const usage = await pdfbolt.usage.get();
 console.log(usage.plan);
 console.log(usage.recurring);
 console.log(usage.oneTime);
-console.log(usage.rateLimit.dayRemaining);
+console.log(usage.rateLimit.day.remaining);
 ```
 
 ## SDK Reference

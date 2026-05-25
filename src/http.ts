@@ -1,29 +1,18 @@
 import {
   PDFBoltAPIError,
-  PDFBoltAuthenticationError,
-  PDFBoltBadRequestError,
   PDFBoltConfigurationError,
-  PDFBoltConversionTimeoutError,
-  PDFBoltForbiddenError,
-  PDFBoltGatewayTimeoutError,
-  PDFBoltNetworkError,
-  PDFBoltNotFoundError,
-  PDFBoltPayloadTooLargeError,
-  PDFBoltRateLimitError,
-  PDFBoltServiceUnavailableError,
-  PDFBoltUnprocessableEntityError
+  PDFBoltNetworkError
 } from './errors.js';
-import type { FetchLike, PDFBoltClientOptions, PDFBoltRequestOptions } from './types.js';
+import type { ConversionErrorCode, FetchLike, PDFBoltClientOptions, PDFBoltRequestOptions } from './types.js';
+import { VERSION } from './version.js';
 
 const DEFAULT_BASE_URL = 'https://api.pdfbolt.com';
+const DEFAULT_REQUEST_TIMEOUT_MS = 120_000;
 
 interface InternalClientOptions extends Required<Pick<PDFBoltClientOptions, 'apiKey'>> {
   baseUrl: string;
   requestTimeoutMs: number;
-  maxRetries: number;
-  retryDelayMs: number;
   fetch: FetchLike;
-  userAgent: string | undefined;
 }
 
 export class PDFBoltHttpClient {
@@ -36,17 +25,14 @@ export class PDFBoltHttpClient {
 
     const fetchImpl = options.fetch ?? globalThis.fetch;
     if (!fetchImpl) {
-      throw new PDFBoltConfigurationError('No fetch implementation is available. Use Node.js 22+ or pass a custom fetch implementation.');
+      throw new PDFBoltConfigurationError('No fetch implementation is available. Use Node.js 24+ or pass a custom fetch implementation.');
     }
 
     this.options = {
       apiKey: options.apiKey,
       baseUrl: normalizeBaseUrl(options.baseUrl ?? DEFAULT_BASE_URL),
-      requestTimeoutMs: options.requestTimeoutMs ?? 120_000,
-      maxRetries: options.maxRetries ?? 0,
-      retryDelayMs: options.retryDelayMs ?? 250,
-      fetch: fetchImpl,
-      userAgent: options.userAgent
+      requestTimeoutMs: options.requestTimeoutMs ?? DEFAULT_REQUEST_TIMEOUT_MS,
+      fetch: fetchImpl
     };
   }
 
@@ -92,75 +78,52 @@ export class PDFBoltHttpClient {
     accept: string,
     readResponse: (response: Response) => Promise<T>
   ): Promise<T> {
-    const maxRetries = requestOptions.maxRetries ?? this.options.maxRetries;
-    let attempt = 0;
+    const timeoutMs = requestOptions.requestTimeoutMs ?? this.options.requestTimeoutMs;
+    const abort = createAbortController(requestOptions.signal, timeoutMs);
 
-    while (true) {
-      const abort = createAbortController(
-        requestOptions.signal,
-        requestOptions.requestTimeoutMs ?? this.options.requestTimeoutMs
-      );
+    try {
+      const init: RequestInit = {
+        method,
+        headers: this.createHeaders(accept, body !== undefined),
+        signal: abort.signal
+      };
 
-      try {
-        const init: RequestInit = {
-          method,
-          headers: this.createHeaders(accept, body !== undefined),
-          signal: abort.signal
-        };
-
-        if (body !== undefined) {
-          init.body = JSON.stringify(body);
-        }
-
-        const response = await this.options.fetch(`${this.options.baseUrl}${path}`, init);
-
-        if (response.ok) {
-          const result = await readResponse(response);
-          abort.cleanup();
-          return result;
-        }
-
-        if (shouldRetryStatus(response.status) && attempt < maxRetries) {
-          abort.cleanup();
-          await delay(this.options.retryDelayMs * 2 ** attempt);
-          attempt += 1;
-          continue;
-        }
-
-        const apiError = await createAPIError(response);
-        abort.cleanup();
-        throw apiError;
-      } catch (error) {
-        abort.cleanup();
-
-        if (error instanceof PDFBoltAPIError) {
-          throw error;
-        }
-
-        if (requestOptions.signal?.aborted) {
-          throw new PDFBoltNetworkError('PDFBolt request was aborted.', error);
-        }
-
-        if (attempt < maxRetries) {
-          await delay(this.options.retryDelayMs * 2 ** attempt);
-          attempt += 1;
-          continue;
-        }
-
-        throw new PDFBoltNetworkError('PDFBolt request failed before receiving a response.', error);
+      if (body !== undefined) {
+        init.body = JSON.stringify(body);
       }
+
+      const response = await this.options.fetch(`${this.options.baseUrl}${path}`, init);
+
+      if (!response.ok) {
+        throw await createAPIError(response);
+      }
+
+      return await readResponse(response);
+    } catch (error) {
+      if (error instanceof PDFBoltAPIError) {
+        throw error;
+      }
+
+      if (abort.timedOut) {
+        throw new PDFBoltNetworkError(`PDFBolt request timed out after ${timeoutMs}ms.`, error);
+      }
+
+      if (requestOptions.signal?.aborted) {
+        throw new PDFBoltNetworkError('PDFBolt request was aborted.', error);
+      }
+
+      throw new PDFBoltNetworkError('PDFBolt request failed before receiving a response.', error);
+    } finally {
+      abort.cleanup();
     }
   }
 
   private createHeaders(accept: string, hasBody: boolean): Headers {
     const headers = new Headers({
       Accept: accept,
-      'API-KEY': this.options.apiKey
+      'API-KEY': this.options.apiKey,
+      'User-Agent': `pdfbolt-node/${VERSION}`
     });
-
-    if (this.options.userAgent) {
-      headers.set('User-Agent', this.options.userAgent);
-    }
 
     if (hasBody) {
       headers.set('Content-Type', 'application/json');
@@ -174,23 +137,11 @@ function normalizeBaseUrl(baseUrl: string): string {
   return baseUrl.replace(/\/+$/, '');
 }
 
-function shouldRetryStatus(status: number): boolean {
-  return status === 503 || status === 504;
-}
-
-function delay(ms: number): Promise<void> {
-  if (ms <= 0) {
-    return Promise.resolve();
-  }
-
-  return new Promise((resolve) => {
-    setTimeout(resolve, ms);
-  });
-}
-
 function createAbortController(parentSignal: AbortSignal | undefined, timeoutMs: number) {
   const controller = new AbortController();
+  let timedOut = false;
   const timeout = setTimeout(() => {
+    timedOut = true;
     controller.abort(new Error(`PDFBolt request timed out after ${timeoutMs}ms.`));
   }, timeoutMs);
 
@@ -206,6 +157,9 @@ function createAbortController(parentSignal: AbortSignal | undefined, timeoutMs:
 
   return {
     signal: controller.signal,
+    get timedOut() {
+      return timedOut;
+    },
     cleanup() {
       clearTimeout(timeout);
       parentSignal?.removeEventListener('abort', abortFromParent);
@@ -217,10 +171,11 @@ async function createAPIError(response: Response): Promise<PDFBoltAPIError> {
   const rawBody = await response.text();
   const parsed = parseJsonObject(rawBody);
   const timestamp = readString(parsed, 'timestamp');
-  const errorCode = readString(parsed, 'errorCode');
+  const errorCode = readString(parsed, 'errorCode') as ConversionErrorCode | undefined;
   const errorMessage = readString(parsed, 'errorMessage');
   const message = errorMessage || response.statusText || `PDFBolt API request failed with status ${response.status}.`;
-  const options = {
+
+  return new PDFBoltAPIError({
     message,
     statusCode: response.status,
     timestamp,
@@ -228,32 +183,7 @@ async function createAPIError(response: Response): Promise<PDFBoltAPIError> {
     errorMessage,
     headers: response.headers,
     rawBody
-  };
-
-  switch (response.status) {
-    case 400:
-      return new PDFBoltBadRequestError(options);
-    case 401:
-      return new PDFBoltAuthenticationError(options);
-    case 403:
-      return new PDFBoltForbiddenError(options);
-    case 404:
-      return new PDFBoltNotFoundError(options);
-    case 408:
-      return new PDFBoltConversionTimeoutError(options);
-    case 413:
-      return new PDFBoltPayloadTooLargeError(options);
-    case 422:
-      return new PDFBoltUnprocessableEntityError(options);
-    case 429:
-      return new PDFBoltRateLimitError(options);
-    case 503:
-      return new PDFBoltServiceUnavailableError(options);
-    case 504:
-      return new PDFBoltGatewayTimeoutError(options);
-    default:
-      return new PDFBoltAPIError(options);
-  }
+  });
 }
 
 function parseJsonObject(rawBody: string): Record<string, unknown> | null {

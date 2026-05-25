@@ -9,6 +9,9 @@ test('CommonJS require exposes public SDK exports', () => {
   assert.equal(typeof sdk.PDFBoltAPIError, 'function');
   assert.equal(typeof sdk.PDFBoltValidationError, 'function');
   assert.equal(typeof sdk.PDFBoltWebhookSignatureError, 'function');
+  assert.equal(sdk.PDFBoltAuthenticationError, undefined);
+  assert.equal(sdk.PDFBoltRateLimitError, undefined);
+  assert.equal(sdk.PDFBoltServiceUnavailableError, undefined);
   assert.equal(typeof sdk.PDFBolt.webhooks.verifySignature, 'function');
   assert.equal(typeof sdk.PDFBolt.webhooks.verifyAndParse, 'function');
 });
