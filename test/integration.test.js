@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
-import { PDFBolt, PDFBoltAuthenticationError } from '../dist/esm/index.js';
+import { PDFBolt, PDFBoltAPIError } from '../dist/esm/index.js';
 
 const apiKey = process.env.PDFBOLT_API_KEY;
 const baseUrl = process.env.PDFBOLT_BASE_URL || 'https://api.pdfbolt.com';
@@ -27,20 +27,59 @@ describeIntegration('PDFBolt API integration', () => {
     assert.equal(typeof usage.plan, 'string');
     assert.equal(Array.isArray(usage.recurring), true);
     assert.equal(Array.isArray(usage.oneTime), true);
+    assert.equal(typeof usage.rateLimit.minute.limit, 'number');
+    assert.equal(typeof usage.rateLimit.minute.remaining, 'number');
   });
 
-  it('generates a direct PDF from raw HTML', async () => {
+  it('generates a direct PDF from raw HTML with metadata', async () => {
     const pdf = await pdfbolt.direct.fromHtml({
       html: '<!doctype html><html><body><h1>PDFBolt SDK integration test</h1></body></html>',
       format: 'A4',
-      printBackground: true
+      printBackground: true,
+      filename: 'sdk_integration_report'
+    });
+
+    assert.equal(pdf.buffer.subarray(0, 5).toString('utf8'), '%PDF-');
+    assert.ok(pdf.size > 0);
+    assert.equal(pdf.filename, 'sdk_integration_report.pdf');
+    assert.equal(typeof pdf.conversionCost, 'number');
+    assert.equal(typeof pdf.rateLimit.minute.limit, 'number');
+    assert.equal(typeof pdf.rateLimit.minute.remaining, 'number');
+  });
+
+  it('generates a direct PDF from URL', async () => {
+    const pdf = await pdfbolt.direct.fromUrl({
+      url: 'https://example.com',
+      format: 'A4'
     });
 
     assert.equal(pdf.buffer.subarray(0, 5).toString('utf8'), '%PDF-');
     assert.ok(pdf.size > 0);
   });
 
-  it('generates a sync PDF URL from raw HTML', async () => {
+  it('generates a base64 direct PDF from raw HTML', async () => {
+    const pdf = await pdfbolt.direct.fromHtml({
+      html: '<!doctype html><html><body><h1>PDFBolt encoded SDK integration test</h1></body></html>',
+      format: 'A4',
+      isEncoded: true
+    });
+
+    assert.equal(typeof pdf.base64, 'string');
+    assert.equal(pdf.buffer.subarray(0, 5).toString('utf8'), '%PDF-');
+    assert.ok(pdf.size > 0);
+  });
+
+  it('handles empty HTML with the default SDK User-Agent', async () => {
+    const pdf = await pdfbolt.direct.fromHtml({
+      html: '',
+      format: 'A4'
+    });
+
+    assert.equal(pdf.buffer.subarray(0, 5).toString('utf8'), '%PDF-');
+    assert.ok(pdf.size > 0);
+  });
+
+  it('generates a sync PDF URL from raw HTML with metadata', async () => {
     const result = await pdfbolt.sync.fromHtml({
       html: '<!doctype html><html><body><h1>PDFBolt sync SDK integration test</h1></body></html>',
       format: 'A4'
@@ -50,15 +89,38 @@ describeIntegration('PDFBolt API integration', () => {
     assert.equal(result.isAsync, false);
     assert.equal(typeof result.requestId, 'string');
     assert.ok(result.documentUrl || result.isCustomS3Bucket);
+    assert.equal(typeof result.conversionCost, 'number');
+    assert.equal(typeof result.rateLimit.minute.limit, 'number');
+    assert.equal(typeof result.rateLimit.minute.remaining, 'number');
   });
 
-  it('maps invalid API keys to PDFBoltAuthenticationError', async () => {
+  it('generates a sync PDF URL from URL', async () => {
+    const result = await pdfbolt.sync.fromUrl({
+      url: 'https://example.com',
+      format: 'A4'
+    });
+
+    assert.equal(result.status, 'SUCCESS');
+    assert.equal(result.isAsync, false);
+    assert.equal(typeof result.requestId, 'string');
+    assert.ok(result.documentUrl || result.isCustomS3Bucket);
+  });
+
+  it('maps invalid API keys to PDFBoltAPIError', async () => {
     const invalidClient = new PDFBolt({
       apiKey: 'invalid-api-key',
       baseUrl,
       requestTimeoutMs: 30_000
     });
 
-    await assert.rejects(() => invalidClient.usage.get(), PDFBoltAuthenticationError);
+    await assert.rejects(
+      () => invalidClient.usage.get(),
+      (error) => {
+        assert.equal(error instanceof PDFBoltAPIError, true);
+        assert.equal(error.statusCode, 401);
+        assert.equal(error.errorCode, 'UNAUTHORIZED');
+        return true;
+      }
+    );
   });
 });

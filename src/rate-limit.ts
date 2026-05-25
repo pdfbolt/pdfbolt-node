@@ -2,12 +2,18 @@ import type { RateLimitInfo } from './types.js';
 
 export function readRateLimitInfo(headers: Headers | undefined): RateLimitInfo {
   return {
-    minuteLimit: readNumberHeader(headers, 'x-pdfbolt-limit-minute'),
-    minuteRemaining: readNumberHeader(headers, 'x-pdfbolt-remaining-minute'),
-    hourLimit: readNumberHeader(headers, 'x-pdfbolt-limit-hour'),
-    hourRemaining: readNumberHeader(headers, 'x-pdfbolt-remaining-hour'),
-    dayLimit: readNumberHeader(headers, 'x-pdfbolt-limit-day'),
-    dayRemaining: readNumberHeader(headers, 'x-pdfbolt-remaining-day')
+    minute: {
+      limit: readNumberHeader(headers, 'x-pdfbolt-limit-minute'),
+      remaining: readNumberHeader(headers, 'x-pdfbolt-remaining-minute')
+    },
+    hour: {
+      limit: readNumberHeader(headers, 'x-pdfbolt-limit-hour'),
+      remaining: readNumberHeader(headers, 'x-pdfbolt-remaining-hour')
+    },
+    day: {
+      limit: readNumberHeader(headers, 'x-pdfbolt-limit-day'),
+      remaining: readNumberHeader(headers, 'x-pdfbolt-remaining-day')
+    }
   };
 }
 

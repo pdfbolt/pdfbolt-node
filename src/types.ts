@@ -4,25 +4,23 @@ export interface PDFBoltClientOptions {
   apiKey: string;
   baseUrl?: string;
   requestTimeoutMs?: number;
-  maxRetries?: number;
-  retryDelayMs?: number;
   fetch?: FetchLike;
-  userAgent?: string;
 }
 
 export interface PDFBoltRequestOptions {
   requestTimeoutMs?: number;
   signal?: AbortSignal;
-  maxRetries?: number;
+}
+
+export interface RateLimitWindow {
+  limit: number | null;
+  remaining: number | null;
 }
 
 export interface RateLimitInfo {
-  minuteLimit: number | null;
-  minuteRemaining: number | null;
-  hourLimit: number | null;
-  hourRemaining: number | null;
-  dayLimit: number | null;
-  dayRemaining: number | null;
+  minute: RateLimitWindow;
+  hour: RateLimitWindow;
+  day: RateLimitWindow;
 }
 
 export type EmulateMediaType = 'screen' | 'print';
@@ -220,6 +218,7 @@ export type ConversionErrorCode =
   | 'UNEXPECTED_ERROR'
   | 'INVALID_CREDENTIALS'
   | 'HTTP_RESPONSE_FAILURE'
+  | 'CLIENT_DISCONNECTED'
   | (string & {});
 
 export interface SyncConversionResult {
@@ -233,6 +232,7 @@ export interface SyncConversionResult {
   duration: number | null;
   documentSizeMb: number | null;
   isCustomS3Bucket: boolean | null;
+  conversionCost: number | null;
   rateLimit: RateLimitInfo;
 }
 

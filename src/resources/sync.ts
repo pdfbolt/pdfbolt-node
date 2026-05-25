@@ -1,5 +1,5 @@
 import type { PDFBoltHttpClient } from '../http.js';
-import { readRateLimitInfo } from '../rate-limit.js';
+import { readNumberHeader, readRateLimitInfo } from '../rate-limit.js';
 import type {
   SyncConversionResult,
   SyncConvertParams,
@@ -17,7 +17,7 @@ export class SyncResource {
 
   async convert(params: SyncConvertParams): Promise<SyncConversionResult> {
     const { body, options } = splitRequestOptions(params);
-    const result = await this.http.requestJsonWithHeaders<Omit<SyncConversionResult, 'rateLimit'>>(
+    const result = await this.http.requestJsonWithHeaders<Omit<SyncConversionResult, 'rateLimit' | 'conversionCost'>>(
       'POST',
       '/v1/sync',
       body,
@@ -26,6 +26,7 @@ export class SyncResource {
 
     return {
       ...result.body,
+      conversionCost: readNumberHeader(result.headers, 'x-pdfbolt-conversion-cost'),
       rateLimit: readRateLimitInfo(result.headers)
     };
   }
