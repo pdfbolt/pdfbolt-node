@@ -32,7 +32,7 @@ export class PDFBoltHttpClient {
       apiKey: options.apiKey,
       baseUrl: normalizeBaseUrl(options.baseUrl ?? DEFAULT_BASE_URL),
       requestTimeoutMs: options.requestTimeoutMs ?? DEFAULT_REQUEST_TIMEOUT_MS,
-      fetch: fetchImpl
+      fetch: (input, init) => fetchImpl(input, init)
     };
   }
 

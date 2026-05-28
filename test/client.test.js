@@ -18,9 +18,11 @@ describe('PDFBolt Node SDK', () => {
   it('converts raw HTML to Base64 for high-level direct.fromHtml calls', async () => {
     let capturedUrl = '';
     let capturedInit;
+    let capturedThis;
     const pdfBody = Buffer.from('%PDF-1.4\n');
 
-    const fetch = async (input, init) => {
+    const fetch = async function (input, init) {
+      capturedThis = this;
       capturedUrl = String(input);
       capturedInit = init;
 
@@ -57,6 +59,7 @@ describe('PDFBolt Node SDK', () => {
     const body = JSON.parse(String(capturedInit.body));
 
     assert.equal(capturedUrl, 'https://api.example.test/v1/direct');
+    assert.equal(capturedThis, undefined);
     assert.equal(headers.get('API-KEY'), 'test-key');
     assert.equal(headers.get('User-Agent'), `pdfbolt-node/${VERSION}`);
     assert.equal(headers.get('Content-Type'), 'application/json');
@@ -208,6 +211,132 @@ describe('PDFBolt Node SDK', () => {
     assert.equal(result.conversionCost, 2);
     assert.equal(result.rateLimit.day.limit, 1000);
     assert.equal(result.rateLimit.day.remaining, 999);
+  });
+
+  it('uses null for missing or malformed numeric headers', async () => {
+    const fetch = async () =>
+      new Response(
+        JSON.stringify({
+          requestId: 'request-id',
+          status: 'SUCCESS',
+          errorCode: null,
+          errorMessage: null,
+          documentUrl: 'https://example.com/document.pdf',
+          expiresAt: '2026-05-16T12:00:00Z',
+          isAsync: false,
+          duration: 120,
+          documentSizeMb: 0.5,
+          isCustomS3Bucket: false
+        }),
+        {
+          status: 200,
+          headers: {
+            'content-type': 'application/json',
+            'x-pdfbolt-conversion-cost': 'not-a-number',
+            'x-pdfbolt-limit-minute': 'not-a-number'
+          }
+        }
+      );
+
+    const pdfbolt = new PDFBolt({
+      apiKey: 'test-key',
+      fetch
+    });
+
+    const result = await pdfbolt.sync.fromHtml({
+      html: '<h1>Hello</h1>'
+    });
+
+    assert.equal(result.conversionCost, null);
+    assert.equal(result.rateLimit.minute.limit, null);
+    assert.equal(result.rateLimit.minute.remaining, null);
+    assert.equal(result.rateLimit.hour.limit, null);
+    assert.equal(result.rateLimit.day.remaining, null);
+  });
+
+  it('parses supported Content-Disposition filename formats', async () => {
+    const cases = [
+      ['attachment; filename="invoice.pdf"', 'invoice.pdf'],
+      ['attachment; filename="invoice.PDF"', 'invoice.PDF'],
+      ['inline; filename="invoice.pdf"', 'invoice.pdf'],
+      ['inline', null],
+      [null, null]
+    ];
+    const pdfBody = Buffer.from('%PDF-1.4\n');
+
+    for (const [contentDisposition, expectedFilename] of cases) {
+      const fetch = async () => {
+        const headers = new Headers({
+          'content-type': 'application/pdf'
+        });
+
+        if (contentDisposition !== null) {
+          headers.set('content-disposition', contentDisposition);
+        }
+
+        return new Response(pdfBody, {
+          status: 200,
+          headers
+        });
+      };
+
+      const pdfbolt = new PDFBolt({
+        apiKey: 'test-key',
+        fetch
+      });
+
+      const result = await pdfbolt.direct.fromUrl({
+        url: 'https://example.com'
+      });
+
+      assert.equal(result.filename, expectedFilename);
+    }
+  });
+
+  it('keeps SDK request options out of the request body while sending async retryDelays', async () => {
+    let requestCount = 0;
+    let capturedBody;
+    let capturedSignal;
+    const fetch = async (_input, init) => {
+      requestCount += 1;
+      capturedBody = JSON.parse(String(init.body));
+      capturedSignal = init.signal;
+
+      return new Response(
+        JSON.stringify({
+          requestId: 'request-id'
+        }),
+        {
+          status: 200,
+          headers: {
+            'content-type': 'application/json',
+            'x-pdfbolt-limit-minute': '60',
+            'x-pdfbolt-remaining-minute': '59'
+          }
+        }
+      );
+    };
+    const signal = new AbortController().signal;
+    const pdfbolt = new PDFBolt({
+      apiKey: 'test-key',
+      fetch
+    });
+
+    const job = await pdfbolt.asyncConversions.fromHtml({
+      html: '<h1>Async</h1>',
+      webhook: 'https://example.com/webhook',
+      retryDelays: [5, 15, 60],
+      requestTimeoutMs: 10_000,
+      signal
+    });
+
+    assert.equal(requestCount, 1);
+    assert.equal(capturedBody.html, Buffer.from('<h1>Async</h1>', 'utf8').toString('base64'));
+    assert.deepEqual(capturedBody.retryDelays, [5, 15, 60]);
+    assert.equal('requestTimeoutMs' in capturedBody, false);
+    assert.equal('signal' in capturedBody, false);
+    assert.equal(capturedSignal instanceof AbortSignal, true);
+    assert.equal(job.rateLimit.minute.remaining, 59);
   });
 
   it('maps documented HTTP statuses to PDFBoltAPIError', async () => {

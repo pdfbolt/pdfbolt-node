@@ -132,7 +132,7 @@ console.log(pdf.rateLimit.minute.remaining);
 console.log(pdf.headers.get('x-pdfbolt-conversion-cost'));
 ```
 
-All result types expose parsed rate-limit values through `rateLimit`. Direct results also expose raw HTTP headers via `pdf.headers`.
+Direct, Sync, Async job, and Usage results expose parsed rate-limit values through `rateLimit`. Rate-limit fields can be `null` when a response does not include the matching header. Direct results also expose raw HTTP headers via `pdf.headers`.
 
 ## Get a Temporary URL
 
@@ -209,11 +209,11 @@ console.log(event.documentUrl);
 
 `verifyAndParse()` verifies the HMAC signature first and parses JSON only after the signature is valid. If you only need a boolean result, use `PDFBolt.webhooks.verifySignature()`.
 
-`PDFBolt.webhooks` and the top-level `webhooks` export reference the same helper object. Use whichever import style fits your codebase.
+The SDK exposes webhook helpers through both `PDFBolt.webhooks` and the top-level `webhooks` export. Use whichever import style fits your codebase.
 
 ## Error Handling
 
-The PDFBolt API returns one common error response shape. The SDK mirrors that with one backend error class: `PDFBoltAPIError`. Check `statusCode` for HTTP-level handling and `errorCode` for PDFBolt-specific causes.
+The PDFBolt API returns one common error response shape. The SDK represents API error responses with one class: `PDFBoltAPIError`. Check `statusCode` for HTTP-level handling and `errorCode` for PDFBolt-specific causes.
 
 ```ts
 import {
@@ -280,11 +280,11 @@ const pdfbolt = new PDFBolt({
 });
 ```
 
-The SDK does not perform automatic transport retries. One SDK method call sends at most one HTTP request. For async conversion retries handled by the PDFBolt backend, use the `retryDelays` conversion parameter.
+The SDK does not automatically retry failed requests. One SDK method call sends at most one HTTP request. For async conversion retries handled by PDFBolt, use the `retryDelays` conversion parameter.
 
 `requestTimeoutMs` is the SDK HTTP timeout. The default is `120_000` ms. The conversion `timeout` option is different: it is sent to the PDFBolt API and controls the browser render timeout for the PDF conversion.
 
-The SDK always sends `User-Agent: pdfbolt-node/<version>` to the PDFBolt API. This identifies the SDK version in backend logs. To control headers used by Chromium/Playwright while rendering the target page, use the conversion `extraHTTPHeaders` parameter.
+The SDK sends `User-Agent: pdfbolt-node/<version>` on requests to the PDFBolt API. This helps identify SDK traffic for support and debugging. To set headers for the page being rendered by Chromium, use the conversion `extraHTTPHeaders` parameter.
 
 Common conversion options such as `format`, `margin`, `printBackground`, `contentDisposition`, `filename`, and `compression` use the same names as the REST API. See [Conversion Parameters](https://pdfbolt.com/docs/parameters) for the full parameter reference.
 
@@ -352,7 +352,14 @@ Common runtime exports:
 PDFBolt
 DirectConversionResult
 VERSION
+Webhooks
 webhooks
+PDFBoltError
+PDFBoltAPIError
+PDFBoltNetworkError
+PDFBoltWebhookSignatureError
+PDFBoltValidationError
+PDFBoltConfigurationError
 ```
 
-TypeScript type exports include conversion requests, conversion results, webhook events, rate-limit metadata, cookies, margins, dimensions, and other REST API parameter types.
+TypeScript type exports include conversion request and result types, webhook event and verification option types, rate-limit metadata, cookies, margins, dimensions, and other REST API parameter types.

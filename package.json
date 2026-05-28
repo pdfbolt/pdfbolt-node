@@ -27,13 +27,15 @@
   },
   "scripts": {
     "clean": "rm -rf dist",
+    "check:node": "node -e \"const major = Number(process.versions.node.split('.')[0]); if (major < 24) { console.error('Node.js 24 or newer is required.'); process.exit(1); }\"",
     "build": "npm run clean && npm run build:esm && npm run build:cjs && node scripts/write-cjs-package.js",
     "build:esm": "tsc -p tsconfig.build.esm.json",
     "build:cjs": "tsc -p tsconfig.build.cjs.json",
     "typecheck": "tsc --noEmit",
     "test": "npm run build && node --test test/*.test.js test/*.test.cjs",
+    "test:pack": "npm run build && node scripts/test-pack.js",
     "test:integration": "npm run build && node --test test/integration.test.js",
-    "prepublishOnly": "npm run typecheck && npm run test"
+    "prepublishOnly": "npm run check:node && npm run typecheck && npm run test && npm run test:pack"
   },
   "keywords": [
     "pdfbolt",

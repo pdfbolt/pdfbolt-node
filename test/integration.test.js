@@ -4,6 +4,8 @@ import { PDFBolt, PDFBoltAPIError } from '../dist/esm/index.js';
 
 const apiKey = process.env.PDFBOLT_API_KEY;
 const baseUrl = process.env.PDFBOLT_BASE_URL || 'https://api.pdfbolt.com';
+const webhookUrl = process.env.PDFBOLT_WEBHOOK_URL;
+const templateId = process.env.PDFBOLT_TEMPLATE_ID;
 const shouldRun = process.env.PDFBOLT_RUN_INTEGRATION_TESTS === '1';
 
 const describeIntegration = shouldRun && apiKey ? describe : describe.skip;
@@ -123,4 +125,52 @@ describeIntegration('PDFBolt API integration', () => {
       }
     );
   });
+
+  it('generates a direct template PDF when PDFBOLT_TEMPLATE_ID is set', { skip: templateId ? false : 'Set PDFBOLT_TEMPLATE_ID to run this check.' }, async () => {
+    const templateData = readTemplateData();
+
+    const directPdf = await pdfbolt.direct.fromTemplate({
+      templateId,
+      templateData
+    });
+
+    assert.equal(directPdf.buffer.subarray(0, 5).toString('utf8'), '%PDF-');
+    assert.ok(directPdf.size > 0);
+  });
+
+  it('generates a sync template PDF URL when PDFBOLT_TEMPLATE_ID is set', { skip: templateId ? false : 'Set PDFBOLT_TEMPLATE_ID to run this check.' }, async () => {
+    const templateData = readTemplateData();
+
+    const syncResult = await pdfbolt.sync.fromTemplate({
+      templateId,
+      templateData
+    });
+
+    assert.equal(syncResult.status, 'SUCCESS');
+    assert.equal(syncResult.isAsync, false);
+    assert.equal(typeof syncResult.requestId, 'string');
+    assert.ok(syncResult.documentUrl || syncResult.isCustomS3Bucket);
+  });
+
+  it('accepts an async HTML job when PDFBOLT_WEBHOOK_URL is set', { skip: webhookUrl ? false : 'Set PDFBOLT_WEBHOOK_URL to run this check.' }, async () => {
+    const job = await pdfbolt.asyncConversions.fromHtml({
+      html: '<!doctype html><html><body><h1>PDFBolt async SDK integration test</h1></body></html>',
+      webhook: webhookUrl,
+      retryDelays: [5, 15]
+    });
+
+    assert.equal(typeof job.requestId, 'string');
+    assert.equal(typeof job.rateLimit.minute.limit, 'number');
+    assert.equal(typeof job.rateLimit.minute.remaining, 'number');
+  });
 });
+
+function readTemplateData() {
+  if (!process.env.PDFBOLT_TEMPLATE_DATA_JSON) {
+    return {};
+  }
+
+  const parsed = JSON.parse(process.env.PDFBOLT_TEMPLATE_DATA_JSON);
+  assert.equal(parsed !== null && typeof parsed === 'object' && !Array.isArray(parsed), true);
+  return parsed;
+}
