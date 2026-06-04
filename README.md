@@ -10,7 +10,7 @@ PDFBolt generates PDFs from HTTPS URLs, HTML, and published templates. See the [
 npm install @pdfbolt/node
 ```
 
-Requires Node.js 24 or newer.
+Requires Node.js 22 or newer.
 
 ## Quick Start
 

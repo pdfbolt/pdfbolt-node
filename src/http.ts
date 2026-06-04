@@ -25,7 +25,7 @@ export class PDFBoltHttpClient {
 
     const fetchImpl = options.fetch ?? globalThis.fetch;
     if (!fetchImpl) {
-      throw new PDFBoltConfigurationError('No fetch implementation is available. Use Node.js 24+ or pass a custom fetch implementation.');
+      throw new PDFBoltConfigurationError('No fetch implementation is available. Use Node.js 22+ or pass a custom fetch implementation.');
     }
 
     this.options = {
