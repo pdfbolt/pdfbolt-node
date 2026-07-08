@@ -1,6 +1,6 @@
 {
   "name": "@pdfbolt/node",
-  "version": "1.0.1",
+  "version": "1.0.2",
   "description": "Official Node.js SDK for the PDFBolt API.",
   "type": "module",
   "main": "./dist/cjs/index.js",
@@ -13,7 +13,7 @@
   "bugs": {
     "url": "https://github.com/pdfbolt/pdfbolt-node/issues"
   },
-  "homepage": "https://github.com/pdfbolt/pdfbolt-node#readme",
+  "homepage": "https://pdfbolt.com/docs/sdks/nodejs",
   "exports": {
     ".": {
       "types": "./dist/esm/index.d.ts",

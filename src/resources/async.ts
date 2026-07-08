@@ -10,7 +10,10 @@ import type {
 import { encodeBase64 } from '../utils/base64.js';
 import { encodeHeaderFooterTemplates } from '../utils/encode-templates.js';
 import { splitRequestOptions } from '../utils/request-options.js';
+import { requiredNonEmptyString, requireRecordResponse } from '../utils/response-shape.js';
 import { requireObjectField, requireStringField } from '../utils/validation.js';
+
+const MALFORMED_ASYNC_RESPONSE = 'PDFBolt API returned a malformed async conversion response.';
 
 export class AsyncConversionsResource {
   constructor(private readonly http: PDFBoltHttpClient) {}
@@ -23,9 +26,10 @@ export class AsyncConversionsResource {
       body,
       options
     );
+    const responseBody = parseAsyncConversionJob(result.body);
 
     return {
-      ...result.body,
+      ...responseBody,
       rateLimit: readRateLimitInfo(result.headers)
     };
   }
@@ -54,4 +58,12 @@ export class AsyncConversionsResource {
 
     return this.convert(encodeHeaderFooterTemplates(params));
   }
+}
+
+function parseAsyncConversionJob(value: unknown): Omit<AsyncConversionJob, 'rateLimit'> {
+  const body = requireRecordResponse(value, MALFORMED_ASYNC_RESPONSE);
+
+  return {
+    requestId: requiredNonEmptyString(body, 'requestId', MALFORMED_ASYNC_RESPONSE)
+  };
 }

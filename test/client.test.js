@@ -100,6 +100,69 @@ describe('PDFBolt Node SDK', () => {
     assert.equal(result.buffer.equals(pdfBody), true);
   });
 
+  it('maps malformed Base64 direct responses to PDFBoltNetworkError', async () => {
+    const fetch = async () =>
+      new Response('not-valid-base64', {
+        status: 200,
+        headers: {
+          'content-type': 'text/plain'
+        }
+      });
+
+    const pdfbolt = new PDFBolt({
+      apiKey: 'test-key',
+      fetch
+    });
+
+    await assert.rejects(
+      () => pdfbolt.direct.fromUrl({ url: 'https://example.com', isEncoded: true }),
+      (error) => {
+        assert.equal(error instanceof PDFBoltNetworkError, true);
+        assert.equal(error.message, 'PDFBolt API returned malformed Base64 response.');
+        return true;
+      }
+    );
+  });
+
+  it('maps non-PDF direct success responses to PDFBoltNetworkError', async () => {
+    const cases = [
+      {
+        body: '<html>not a pdf</html>',
+        contentType: 'application/pdf',
+        params: { url: 'https://example.com' }
+      },
+      {
+        body: Buffer.from('<html>not a pdf</html>').toString('base64'),
+        contentType: 'text/plain',
+        params: { url: 'https://example.com', isEncoded: true }
+      }
+    ];
+
+    for (const testCase of cases) {
+      const fetch = async () =>
+        new Response(testCase.body, {
+          status: 200,
+          headers: {
+            'content-type': testCase.contentType
+          }
+        });
+
+      const pdfbolt = new PDFBolt({
+        apiKey: 'test-key',
+        fetch
+      });
+
+      await assert.rejects(
+        () => pdfbolt.direct.fromUrl(testCase.params),
+        (error) => {
+          assert.equal(error instanceof PDFBoltNetworkError, true);
+          assert.equal(error.message, 'PDFBolt API returned a malformed PDF response.');
+          return true;
+        }
+      );
+    }
+  });
+
   it('maps API errors to one backend error shape', async () => {
     const rawBody = JSON.stringify({
       timestamp: '2026-05-15T12:00:00Z',
@@ -408,6 +471,74 @@ describe('PDFBolt Node SDK', () => {
     );
   });
 
+  it('maps malformed successful JSON responses to PDFBoltNetworkError', async () => {
+    const cases = [
+      {
+        run: (pdfbolt) => pdfbolt.sync.fromHtml({ html: '<h1>Hello</h1>' }),
+        body: {},
+        message: 'PDFBolt API returned a malformed sync conversion response.'
+      },
+      {
+        run: (pdfbolt) => pdfbolt.sync.fromHtml({ html: '<h1>Hello</h1>' }),
+        body: {
+          requestId: 'request-id',
+          status: 'SUCCESS',
+          errorCode: null,
+          errorMessage: null,
+          documentUrl: 999,
+          expiresAt: null,
+          isAsync: false,
+          duration: 120,
+          documentSizeMb: 0.5,
+          isCustomS3Bucket: false
+        },
+        message: 'PDFBolt API returned a malformed sync conversion response.'
+      },
+      {
+        run: (pdfbolt) => pdfbolt.asyncConversions.fromHtml({ html: '<h1>Hello</h1>', webhook: 'https://example.com/webhook' }),
+        body: {},
+        message: 'PDFBolt API returned a malformed async conversion response.'
+      },
+      {
+        run: (pdfbolt) => pdfbolt.usage.get(),
+        body: {},
+        message: 'PDFBolt API returned a malformed usage response.'
+      },
+      {
+        run: (pdfbolt) => pdfbolt.usage.get(),
+        body: {
+          plan: 'FREE',
+          recurring: [{ total: 'bad', left: 1, expires: '2026-01-01T00:00:00Z', overage: 0 }],
+          oneTime: []
+        },
+        message: 'PDFBolt API returned a malformed usage response.'
+      }
+    ];
+
+    for (const { run, body, message } of cases) {
+      const fetch = async () =>
+        new Response(JSON.stringify(body), {
+          status: 200,
+          headers: {
+            'content-type': 'application/json'
+          }
+        });
+      const pdfbolt = new PDFBolt({
+        apiKey: 'test-key',
+        fetch
+      });
+
+      await assert.rejects(
+        () => run(pdfbolt),
+        (error) => {
+          assert.equal(error instanceof PDFBoltNetworkError, true);
+          assert.equal(error.message, message);
+          return true;
+        }
+      );
+    }
+  });
+
   it('does not retry API errors', async () => {
     for (const status of [429, 503, 504]) {
       let requestCount = 0;
@@ -517,6 +648,76 @@ describe('PDFBolt Node SDK', () => {
     assert.throws(() => new PDFBolt({ apiKey: '' }), PDFBoltConfigurationError);
   });
 
+  it('throws configuration errors for invalid global requestTimeoutMs values', () => {
+    for (const requestTimeoutMs of [-1, NaN, Infinity, 2_147_483_648, '1000']) {
+      assert.throws(
+        () => new PDFBolt({ apiKey: 'test-key', requestTimeoutMs }),
+        (error) => {
+          assert.equal(error instanceof PDFBoltConfigurationError, true);
+          assert.equal(
+            error.message,
+            'PDFBolt requestTimeoutMs must be a finite number of milliseconds between 0 and 2147483647.'
+          );
+          return true;
+        }
+      );
+    }
+  });
+
+  it('throws validation errors before requests for invalid per-request requestTimeoutMs values', async () => {
+    let requestCount = 0;
+    const fetch = async () => {
+      requestCount += 1;
+      return new Response('{}', { status: 200 });
+    };
+    const pdfbolt = new PDFBolt({
+      apiKey: 'test-key',
+      fetch
+    });
+
+    for (const requestTimeoutMs of [-1, NaN, Infinity, 2_147_483_648, '1000']) {
+      await assert.rejects(
+        () => pdfbolt.direct.fromHtml({ html: '<h1>Hello</h1>', requestTimeoutMs }),
+        (error) => {
+          assert.equal(error instanceof PDFBoltValidationError, true);
+          assert.equal(
+            error.message,
+            'requestTimeoutMs must be a finite number of milliseconds between 0 and 2147483647.'
+          );
+          return true;
+        }
+      );
+    }
+
+    assert.equal(requestCount, 0);
+  });
+
+  it('throws validation errors before requests for non-serializable request bodies', async () => {
+    let requestCount = 0;
+    const fetch = async () => {
+      requestCount += 1;
+      return new Response('%PDF-1.4\n', { status: 200 });
+    };
+    const pdfbolt = new PDFBolt({
+      apiKey: 'test-key',
+      fetch
+    });
+
+    await assert.rejects(
+      () => pdfbolt.direct.fromTemplate({
+        templateId: '00000000-0000-0000-0000-000000000000',
+        templateData: { amount: 10n }
+      }),
+      (error) => {
+        assert.equal(error instanceof PDFBoltValidationError, true);
+        assert.equal(error.message, 'Request body must be JSON serializable.');
+        return true;
+      }
+    );
+
+    assert.equal(requestCount, 0);
+  });
+
   it('throws validation errors before high-level helper requests', async () => {
     let requestCount = 0;
     const fetch = async () => {
@@ -606,6 +807,115 @@ describe('PDFBolt Node SDK', () => {
           secret: 'webhook-secret'
         }),
       PDFBoltWebhookSignatureError
+    );
+  });
+
+  it('rejects empty webhook secrets', () => {
+    const rawBody = JSON.stringify({
+      requestId: '4da0a428-16e0-4c95-b1d3-a8f475ed717e',
+      status: 'SUCCESS',
+      errorCode: null,
+      errorMessage: null,
+      documentUrl: 'https://example.com/document.pdf',
+      expiresAt: '2026-05-16T12:00:00Z',
+      isAsync: true,
+      duration: 574,
+      documentSizeMb: 0.02,
+      isCustomS3Bucket: false
+    });
+    const signature = `sha256=${createHmac('sha256', '').update(rawBody).digest('hex')}`;
+
+    assert.equal(PDFBolt.webhooks.verifySignature({ rawBody, signature, secret: '' }), false);
+
+    assert.throws(
+      () =>
+        PDFBolt.webhooks.verifyAndParse({
+          rawBody,
+          signature,
+          secret: ''
+        }),
+      PDFBoltWebhookSignatureError
+    );
+  });
+
+  it('maps malformed webhook payloads to PDFBoltWebhookSignatureError', () => {
+    const secret = 'webhook-secret';
+    const rawBody = '{not json';
+    const signature = `sha256=${createHmac('sha256', secret).update(rawBody).digest('hex')}`;
+
+    assert.throws(
+      () =>
+        PDFBolt.webhooks.verifyAndParse({
+          rawBody,
+          signature,
+          secret
+        }),
+      (error) => {
+        assert.equal(error instanceof PDFBoltWebhookSignatureError, true);
+        assert.equal(error.message, 'Invalid PDFBolt webhook payload.');
+        return true;
+      }
+    );
+  });
+
+  it('maps webhook schema errors to PDFBoltWebhookSignatureError', () => {
+    const secret = 'webhook-secret';
+    const rawBody = JSON.stringify({
+      status: 'SUCCESS',
+      errorCode: null,
+      errorMessage: null,
+      documentUrl: 'https://example.com/document.pdf',
+      expiresAt: '2026-05-16T12:00:00Z',
+      isAsync: true,
+      duration: 574,
+      documentSizeMb: 0.02,
+      isCustomS3Bucket: false
+    });
+    const signature = `sha256=${createHmac('sha256', secret).update(rawBody).digest('hex')}`;
+
+    assert.throws(
+      () =>
+        PDFBolt.webhooks.verifyAndParse({
+          rawBody,
+          signature,
+          secret
+        }),
+      (error) => {
+        assert.equal(error instanceof PDFBoltWebhookSignatureError, true);
+        assert.equal(error.message, 'Invalid PDFBolt webhook payload.');
+        return true;
+      }
+    );
+  });
+
+  it('maps webhook field type errors to PDFBoltWebhookSignatureError', () => {
+    const secret = 'webhook-secret';
+    const rawBody = JSON.stringify({
+      requestId: '4da0a428-16e0-4c95-b1d3-a8f475ed717e',
+      status: 'SUCCESS',
+      errorCode: null,
+      errorMessage: null,
+      documentUrl: 999,
+      expiresAt: '2026-05-16T12:00:00Z',
+      isAsync: true,
+      duration: 'slow',
+      documentSizeMb: 0.02,
+      isCustomS3Bucket: false
+    });
+    const signature = `sha256=${createHmac('sha256', secret).update(rawBody).digest('hex')}`;
+
+    assert.throws(
+      () =>
+        PDFBolt.webhooks.verifyAndParse({
+          rawBody,
+          signature,
+          secret
+        }),
+      (error) => {
+        assert.equal(error instanceof PDFBoltWebhookSignatureError, true);
+        assert.equal(error.message, 'Invalid PDFBolt webhook payload.');
+        return true;
+      }
     );
   });
 });

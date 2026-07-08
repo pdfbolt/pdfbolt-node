@@ -1,13 +1,15 @@
 import {
   PDFBoltAPIError,
   PDFBoltConfigurationError,
-  PDFBoltNetworkError
+  PDFBoltNetworkError,
+  PDFBoltValidationError
 } from './errors.js';
 import type { ConversionErrorCode, FetchLike, PDFBoltClientOptions, PDFBoltRequestOptions } from './types.js';
 import { VERSION } from './version.js';
 
 const DEFAULT_BASE_URL = 'https://api.pdfbolt.com';
 const DEFAULT_REQUEST_TIMEOUT_MS = 120_000;
+const MAX_REQUEST_TIMEOUT_MS = 2_147_483_647;
 
 interface InternalClientOptions extends Required<Pick<PDFBoltClientOptions, 'apiKey'>> {
   baseUrl: string;
@@ -31,7 +33,7 @@ export class PDFBoltHttpClient {
     this.options = {
       apiKey: options.apiKey,
       baseUrl: normalizeBaseUrl(options.baseUrl ?? DEFAULT_BASE_URL),
-      requestTimeoutMs: options.requestTimeoutMs ?? DEFAULT_REQUEST_TIMEOUT_MS,
+      requestTimeoutMs: validateConfigurationRequestTimeoutMs(options.requestTimeoutMs ?? DEFAULT_REQUEST_TIMEOUT_MS),
       fetch: (input, init) => fetchImpl(input, init)
     };
   }
@@ -78,7 +80,8 @@ export class PDFBoltHttpClient {
     accept: string,
     readResponse: (response: Response) => Promise<T>
   ): Promise<T> {
-    const timeoutMs = requestOptions.requestTimeoutMs ?? this.options.requestTimeoutMs;
+    const timeoutMs = validateRequestTimeoutMs(requestOptions.requestTimeoutMs ?? this.options.requestTimeoutMs);
+    const requestBody = body === undefined ? undefined : serializeRequestBody(body);
     const abort = createAbortController(requestOptions.signal, timeoutMs);
 
     try {
@@ -88,8 +91,8 @@ export class PDFBoltHttpClient {
         signal: abort.signal
       };
 
-      if (body !== undefined) {
-        init.body = JSON.stringify(body);
+      if (requestBody !== undefined) {
+        init.body = requestBody;
       }
 
       const response = await this.options.fetch(`${this.options.baseUrl}${path}`, init);
@@ -101,6 +104,10 @@ export class PDFBoltHttpClient {
       return await readResponse(response);
     } catch (error) {
       if (error instanceof PDFBoltAPIError) {
+        throw error;
+      }
+
+      if (error instanceof PDFBoltNetworkError) {
         throw error;
       }
 
@@ -135,6 +142,38 @@ export class PDFBoltHttpClient {
 
 function normalizeBaseUrl(baseUrl: string): string {
   return baseUrl.replace(/\/+$/, '');
+}
+
+function validateConfigurationRequestTimeoutMs(value: unknown): number {
+  if (!isValidRequestTimeoutMs(value)) {
+    throw new PDFBoltConfigurationError(
+      `PDFBolt requestTimeoutMs must be a finite number of milliseconds between 0 and ${MAX_REQUEST_TIMEOUT_MS}.`
+    );
+  }
+
+  return value;
+}
+
+function validateRequestTimeoutMs(value: unknown): number {
+  if (!isValidRequestTimeoutMs(value)) {
+    throw new PDFBoltValidationError(
+      `requestTimeoutMs must be a finite number of milliseconds between 0 and ${MAX_REQUEST_TIMEOUT_MS}.`
+    );
+  }
+
+  return value;
+}
+
+function isValidRequestTimeoutMs(value: unknown): value is number {
+  return typeof value === 'number' && Number.isFinite(value) && value >= 0 && value <= MAX_REQUEST_TIMEOUT_MS;
+}
+
+function serializeRequestBody(body: unknown): string {
+  try {
+    return JSON.stringify(body);
+  } catch {
+    throw new PDFBoltValidationError('Request body must be JSON serializable.');
+  }
 }
 
 function createAbortController(parentSignal: AbortSignal | undefined, timeoutMs: number) {

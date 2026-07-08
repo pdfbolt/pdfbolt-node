@@ -268,8 +268,8 @@ See [Error Handling](https://pdfbolt.com/docs/error-handling) for the full API e
 
 - `PDFBoltValidationError` is thrown before a request is sent when a high-level helper is called with missing or invalid SDK-side parameters.
 - `PDFBoltConfigurationError` is thrown before a request is sent, for example when the API key is missing.
-- `PDFBoltNetworkError` means the SDK did not receive a usable HTTP response, for example because of a network failure, timeout, or aborted request.
-- `PDFBoltWebhookSignatureError` is thrown by `verifyAndParse()` when the webhook signature is invalid.
+- `PDFBoltNetworkError` means the SDK did not receive a usable HTTP response, for example because of a network failure, timeout, aborted request, or malformed success response.
+- `PDFBoltWebhookSignatureError` is thrown by `verifyAndParse()` when the webhook signature or payload is invalid.
 
 ## Advanced Client Options
 
