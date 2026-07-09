@@ -19,7 +19,7 @@ import {
   requiredNonEmptyString,
   requireRecordResponse
 } from '../utils/response-shape.js';
-import { requireObjectField, requireStringField } from '../utils/validation.js';
+import { requireObjectField, requireParamsObject, requireStringField, validateHeaderMaps } from '../utils/validation.js';
 
 const MALFORMED_SYNC_RESPONSE = 'PDFBolt API returned a malformed sync conversion response.';
 
@@ -27,7 +27,9 @@ export class SyncResource {
   constructor(private readonly http: PDFBoltHttpClient) {}
 
   async convert(params: SyncConvertParams): Promise<SyncConversionResult> {
-    const { body, options } = splitRequestOptions(params);
+    const validParams = requireParamsObject(params, 'sync.convert');
+    validateHeaderMaps(validParams);
+    const { body, options } = splitRequestOptions(validParams);
     const result = await this.http.requestJsonWithHeaders<Omit<SyncConversionResult, 'rateLimit' | 'conversionCost'>>(
       'POST',
       '/v1/sync',
@@ -76,16 +78,39 @@ function parseSyncConversionResult(value: unknown): Omit<SyncConversionResult, '
     throw new PDFBoltNetworkError(MALFORMED_SYNC_RESPONSE);
   }
 
+  const documentUrl = nullableString(body, 'documentUrl', MALFORMED_SYNC_RESPONSE);
+  const expiresAt = nullableString(body, 'expiresAt', MALFORMED_SYNC_RESPONSE);
+  const isCustomS3Bucket = nullableBool(body, 'isCustomS3Bucket', MALFORMED_SYNC_RESPONSE);
+  validateSuccessDocumentFields(documentUrl, expiresAt, isCustomS3Bucket, MALFORMED_SYNC_RESPONSE);
+
   return {
     requestId,
     status,
     errorCode: nullableString(body, 'errorCode', MALFORMED_SYNC_RESPONSE),
     errorMessage: nullableString(body, 'errorMessage', MALFORMED_SYNC_RESPONSE),
-    documentUrl: nullableString(body, 'documentUrl', MALFORMED_SYNC_RESPONSE),
-    expiresAt: nullableString(body, 'expiresAt', MALFORMED_SYNC_RESPONSE),
+    documentUrl,
+    expiresAt,
     isAsync: false,
     duration: nullableNumber(body, 'duration', MALFORMED_SYNC_RESPONSE),
     documentSizeMb: nullableNumber(body, 'documentSizeMb', MALFORMED_SYNC_RESPONSE),
-    isCustomS3Bucket: nullableBool(body, 'isCustomS3Bucket', MALFORMED_SYNC_RESPONSE)
+    isCustomS3Bucket
   };
+}
+
+export function validateSuccessDocumentFields(
+  documentUrl: string | null,
+  expiresAt: string | null,
+  isCustomS3Bucket: boolean | null,
+  message: string
+): void {
+  if (isCustomS3Bucket === true) {
+    if (documentUrl !== null || expiresAt !== null) {
+      throw new PDFBoltNetworkError(message);
+    }
+    return;
+  }
+
+  if (documentUrl === null || expiresAt === null) {
+    throw new PDFBoltNetworkError(message);
+  }
 }

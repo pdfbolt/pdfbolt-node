@@ -11,7 +11,7 @@ import { encodeBase64 } from '../utils/base64.js';
 import { encodeHeaderFooterTemplates } from '../utils/encode-templates.js';
 import { splitRequestOptions } from '../utils/request-options.js';
 import { requiredNonEmptyString, requireRecordResponse } from '../utils/response-shape.js';
-import { requireObjectField, requireStringField } from '../utils/validation.js';
+import { requireObjectField, requireParamsObject, requireStringField, validateHeaderMaps } from '../utils/validation.js';
 
 const MALFORMED_ASYNC_RESPONSE = 'PDFBolt API returned a malformed async conversion response.';
 
@@ -19,7 +19,9 @@ export class AsyncConversionsResource {
   constructor(private readonly http: PDFBoltHttpClient) {}
 
   async convert(params: AsyncConvertParams): Promise<AsyncConversionJob> {
-    const { body, options } = splitRequestOptions(params);
+    const validParams = requireParamsObject(params, 'asyncConversions.convert');
+    validateHeaderMaps(validParams);
+    const { body, options } = splitRequestOptions(validParams);
     const result = await this.http.requestJsonWithHeaders<Omit<AsyncConversionJob, 'rateLimit'>>(
       'POST',
       '/v1/async',

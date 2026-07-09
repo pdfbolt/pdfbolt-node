@@ -1,6 +1,6 @@
 {
   "name": "@pdfbolt/node",
-  "version": "1.0.2",
+  "version": "1.0.3",
   "description": "Official Node.js SDK for the PDFBolt API.",
   "type": "module",
   "main": "./dist/cjs/index.js",

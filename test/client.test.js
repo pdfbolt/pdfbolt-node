@@ -495,6 +495,38 @@ describe('PDFBolt Node SDK', () => {
         message: 'PDFBolt API returned a malformed sync conversion response.'
       },
       {
+        run: (pdfbolt) => pdfbolt.sync.fromHtml({ html: '<h1>Hello</h1>' }),
+        body: {
+          requestId: 'request-id',
+          status: 'SUCCESS',
+          errorCode: null,
+          errorMessage: null,
+          documentUrl: null,
+          expiresAt: null,
+          isAsync: false,
+          duration: 120,
+          documentSizeMb: 0.5,
+          isCustomS3Bucket: false
+        },
+        message: 'PDFBolt API returned a malformed sync conversion response.'
+      },
+      {
+        run: (pdfbolt) => pdfbolt.sync.fromHtml({ html: '<h1>Hello</h1>' }),
+        body: {
+          requestId: 'request-id',
+          status: 'SUCCESS',
+          errorCode: null,
+          errorMessage: null,
+          documentUrl: 'https://example.com/document.pdf',
+          expiresAt: '2026-05-16T12:00:00Z',
+          isAsync: false,
+          duration: 120,
+          documentSizeMb: 0.5,
+          isCustomS3Bucket: true
+        },
+        message: 'PDFBolt API returned a malformed sync conversion response.'
+      },
+      {
         run: (pdfbolt) => pdfbolt.asyncConversions.fromHtml({ html: '<h1>Hello</h1>', webhook: 'https://example.com/webhook' }),
         body: {},
         message: 'PDFBolt API returned a malformed async conversion response.'
@@ -645,7 +677,20 @@ describe('PDFBolt Node SDK', () => {
   });
 
   it('throws configuration errors before making API requests', () => {
-    assert.throws(() => new PDFBolt({ apiKey: '' }), PDFBoltConfigurationError);
+    assert.throws(() => new PDFBolt(), PDFBoltConfigurationError);
+    assert.throws(() => new PDFBolt(null), PDFBoltConfigurationError);
+
+    const invalidApiKeys = ['', '   ', ' abc', 'abc ', 'abc\t123', 123];
+    for (const apiKey of invalidApiKeys) {
+      assert.throws(() => new PDFBolt({ apiKey }), PDFBoltConfigurationError);
+    }
+
+    const invalidBaseUrls = ['', 'api.pdfbolt.com', 'ftp://api.pdfbolt.com', '/tmp', 123];
+    for (const baseUrl of invalidBaseUrls) {
+      assert.throws(() => new PDFBolt({ apiKey: 'test-key', baseUrl }), PDFBoltConfigurationError);
+    }
+
+    assert.throws(() => new PDFBolt({ apiKey: 'test-key', fetch: {} }), PDFBoltConfigurationError);
   });
 
   it('throws configuration errors for invalid global requestTimeoutMs values', () => {
@@ -756,6 +801,69 @@ describe('PDFBolt Node SDK', () => {
         return true;
       }
     );
+
+    assert.equal(requestCount, 0);
+  });
+
+  it('throws validation errors before low-level convert requests with invalid params', async () => {
+    let requestCount = 0;
+    const fetch = async () => {
+      requestCount += 1;
+      return new Response('%PDF-1.4\n', { status: 200 });
+    };
+    const pdfbolt = new PDFBolt({
+      apiKey: 'test-key',
+      fetch
+    });
+
+    const cases = [
+      () => pdfbolt.direct.convert(null),
+      () => pdfbolt.direct.convert([]),
+      () => pdfbolt.direct.convert('bad'),
+      () => pdfbolt.sync.convert(null),
+      () => pdfbolt.sync.convert([]),
+      () => pdfbolt.sync.convert('bad'),
+      () => pdfbolt.asyncConversions.convert(null),
+      () => pdfbolt.asyncConversions.convert([]),
+      () => pdfbolt.asyncConversions.convert('bad')
+    ];
+
+    for (const runCase of cases) {
+      await assert.rejects(runCase, PDFBoltValidationError);
+    }
+
+    assert.equal(requestCount, 0);
+  });
+
+  it('throws validation errors before requests for invalid header maps', async () => {
+    let requestCount = 0;
+    const fetch = async () => {
+      requestCount += 1;
+      return new Response('%PDF-1.4\n', { status: 200 });
+    };
+    const pdfbolt = new PDFBolt({
+      apiKey: 'test-key',
+      fetch
+    });
+
+    const cases = [
+      () => pdfbolt.direct.fromHtml({ html: '<h1>Hello</h1>', extraHTTPHeaders: { 'x-test': 123 } }),
+      () => pdfbolt.direct.fromHtml({ html: '<h1>Hello</h1>', extraHTTPHeaders: { 'x-test': null } }),
+      () => pdfbolt.asyncConversions.fromHtml({
+        html: '<h1>Hello</h1>',
+        webhook: 'https://example.com/webhook',
+        additionalWebhookHeaders: { 'x-test': 123 }
+      }),
+      () => pdfbolt.asyncConversions.fromHtml({
+        html: '<h1>Hello</h1>',
+        webhook: 'https://example.com/webhook',
+        additionalWebhookHeaders: { 'x-test': null }
+      })
+    ];
+
+    for (const runCase of cases) {
+      await assert.rejects(runCase, PDFBoltValidationError);
+    }
 
     assert.equal(requestCount, 0);
   });
@@ -917,5 +1025,54 @@ describe('PDFBolt Node SDK', () => {
         return true;
       }
     );
+  });
+
+  it('rejects impossible successful webhook document shapes', () => {
+    const secret = 'webhook-secret';
+    const cases = [
+      {
+        requestId: '4da0a428-16e0-4c95-b1d3-a8f475ed717e',
+        status: 'SUCCESS',
+        errorCode: null,
+        errorMessage: null,
+        documentUrl: null,
+        expiresAt: null,
+        isAsync: true,
+        duration: 574,
+        documentSizeMb: 0.02,
+        isCustomS3Bucket: false
+      },
+      {
+        requestId: '4da0a428-16e0-4c95-b1d3-a8f475ed717e',
+        status: 'SUCCESS',
+        errorCode: null,
+        errorMessage: null,
+        documentUrl: 'https://example.com/document.pdf',
+        expiresAt: '2026-05-16T12:00:00Z',
+        isAsync: true,
+        duration: 574,
+        documentSizeMb: 0.02,
+        isCustomS3Bucket: true
+      }
+    ];
+
+    for (const payload of cases) {
+      const rawBody = JSON.stringify(payload);
+      const signature = `sha256=${createHmac('sha256', secret).update(rawBody).digest('hex')}`;
+
+      assert.throws(
+        () =>
+          PDFBolt.webhooks.verifyAndParse({
+            rawBody,
+            signature,
+            secret
+          }),
+        (error) => {
+          assert.equal(error instanceof PDFBoltWebhookSignatureError, true);
+          assert.equal(error.message, 'Invalid PDFBolt webhook payload.');
+          return true;
+        }
+      );
+    }
   });
 });

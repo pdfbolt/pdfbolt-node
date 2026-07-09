@@ -1,5 +1,6 @@
 import { createHmac, timingSafeEqual } from 'node:crypto';
 import { PDFBoltWebhookSignatureError } from './errors.js';
+import { validateSuccessDocumentFields } from './resources/sync.js';
 import type { AsyncConversionWebhookEvent } from './types.js';
 
 export type WebhookRawBody = string | Buffer | Uint8Array | ArrayBuffer | ArrayBufferView;
@@ -96,7 +97,7 @@ function isAsyncConversionWebhookEvent(payload: unknown): payload is AsyncConver
     return false;
   }
 
-  return (
+  const validShape =
     isNonEmptyString(payload.requestId) &&
     (payload.status === 'SUCCESS' || payload.status === 'FAILURE') &&
     isNullableString(payload.errorCode) &&
@@ -106,8 +107,26 @@ function isAsyncConversionWebhookEvent(payload: unknown): payload is AsyncConver
     payload.isAsync === true &&
     isNullableNumber(payload.duration) &&
     isNullableNumber(payload.documentSizeMb) &&
-    isNullableBool(payload.isCustomS3Bucket)
-  );
+    isNullableBool(payload.isCustomS3Bucket);
+
+  if (!validShape) {
+    return false;
+  }
+
+  if (payload.status === 'SUCCESS') {
+    try {
+      validateSuccessDocumentFields(
+        payload.documentUrl as string | null,
+        payload.expiresAt as string | null,
+        payload.isCustomS3Bucket as boolean | null,
+        'Invalid PDFBolt webhook payload.'
+      );
+    } catch {
+      return false;
+    }
+  }
+
+  return true;
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {

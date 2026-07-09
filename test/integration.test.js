@@ -29,8 +29,8 @@ describeIntegration('PDFBolt API integration', () => {
     assert.equal(typeof usage.plan, 'string');
     assert.equal(Array.isArray(usage.recurring), true);
     assert.equal(Array.isArray(usage.oneTime), true);
-    assert.equal(typeof usage.rateLimit.minute.limit, 'number');
-    assert.equal(typeof usage.rateLimit.minute.remaining, 'number');
+    assert.equal(usage.rateLimit.minute.limit === null || typeof usage.rateLimit.minute.limit === 'number', true);
+    assert.equal(usage.rateLimit.minute.remaining === null || typeof usage.rateLimit.minute.remaining === 'number', true);
   });
 
   it('generates a direct PDF from raw HTML with metadata', async () => {

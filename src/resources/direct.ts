@@ -9,13 +9,15 @@ import type {
 import { encodeBase64 } from '../utils/base64.js';
 import { encodeHeaderFooterTemplates } from '../utils/encode-templates.js';
 import { splitRequestOptions } from '../utils/request-options.js';
-import { requireObjectField, requireStringField } from '../utils/validation.js';
+import { requireObjectField, requireParamsObject, requireStringField, validateHeaderMaps } from '../utils/validation.js';
 
 export class DirectResource {
   constructor(private readonly http: PDFBoltHttpClient) {}
 
   async convert(params: DirectConvertParams): Promise<DirectConversionResult> {
-    const { body, options } = splitRequestOptions(params);
+    const validParams = requireParamsObject(params, 'direct.convert');
+    validateHeaderMaps(validParams);
+    const { body, options } = splitRequestOptions(validParams);
     const response = await this.http.requestBinary('POST', '/v1/direct', body, options);
 
     return new DirectConversionResult({

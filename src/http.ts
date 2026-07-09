@@ -21,17 +21,18 @@ export class PDFBoltHttpClient {
   private readonly options: InternalClientOptions;
 
   constructor(options: PDFBoltClientOptions) {
-    if (!options.apiKey) {
-      throw new PDFBoltConfigurationError('PDFBolt API key is required.');
+    if (!isObjectRecord(options)) {
+      throw new PDFBoltConfigurationError('PDFBolt client options are required.');
     }
 
+    const apiKey = validateApiKey(options.apiKey);
     const fetchImpl = options.fetch ?? globalThis.fetch;
-    if (!fetchImpl) {
+    if (typeof fetchImpl !== 'function') {
       throw new PDFBoltConfigurationError('No fetch implementation is available. Use Node.js 22+ or pass a custom fetch implementation.');
     }
 
     this.options = {
-      apiKey: options.apiKey,
+      apiKey,
       baseUrl: normalizeBaseUrl(options.baseUrl ?? DEFAULT_BASE_URL),
       requestTimeoutMs: validateConfigurationRequestTimeoutMs(options.requestTimeoutMs ?? DEFAULT_REQUEST_TIMEOUT_MS),
       fetch: (input, init) => fetchImpl(input, init)
@@ -140,7 +141,30 @@ export class PDFBoltHttpClient {
   }
 }
 
-function normalizeBaseUrl(baseUrl: string): string {
+function validateApiKey(value: unknown): string {
+  if (typeof value !== 'string' || value.trim() === '' || value.trim() !== value || /\s/.test(value)) {
+    throw new PDFBoltConfigurationError('PDFBolt API key must be a non-empty string without whitespace.');
+  }
+
+  return value;
+}
+
+function normalizeBaseUrl(baseUrl: unknown): string {
+  if (typeof baseUrl !== 'string' || baseUrl.trim() === '' || baseUrl.trim() !== baseUrl) {
+    throw new PDFBoltConfigurationError('PDFBolt baseUrl must be an http or https URL.');
+  }
+
+  let parsed: URL;
+  try {
+    parsed = new URL(baseUrl);
+  } catch {
+    throw new PDFBoltConfigurationError('PDFBolt baseUrl must be an http or https URL.');
+  }
+
+  if (!['http:', 'https:'].includes(parsed.protocol) || parsed.host === '') {
+    throw new PDFBoltConfigurationError('PDFBolt baseUrl must be an http or https URL.');
+  }
+
   return baseUrl.replace(/\/+$/, '');
 }
 
@@ -166,6 +190,10 @@ function validateRequestTimeoutMs(value: unknown): number {
 
 function isValidRequestTimeoutMs(value: unknown): value is number {
   return typeof value === 'number' && Number.isFinite(value) && value >= 0 && value <= MAX_REQUEST_TIMEOUT_MS;
+}
+
+function isObjectRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value);
 }
 
 function serializeRequestBody(body: unknown): string {
